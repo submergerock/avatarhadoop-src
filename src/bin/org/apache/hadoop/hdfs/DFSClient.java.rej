@@ -1,0 +1,72 @@
+***************
+*** 168,174 ****
+      this.maxBlockAcquireFailures = 
+                            conf.getInt("dfs.client.max.block.acquire.failures",
+                                        MAX_BLOCK_ACQUIRE_FAILURES);
+-     
+      try {
+        this.ugi = UnixUserGroupInformation.login(conf, true);
+      } catch (LoginException e) {
+--- 172,180 ----
+      this.maxBlockAcquireFailures = 
+                            conf.getInt("dfs.client.max.block.acquire.failures",
+                                        MAX_BLOCK_ACQUIRE_FAILURES);
++     // The hdfsTimeout is currently the same as the ipc timeout 
++     this.hdfsTimeout = Client.getTimeout(conf);
++ 
+      try {
+        this.ugi = UnixUserGroupInformation.login(conf, true);
+      } catch (LoginException e) {
+***************
+*** 3140,3145 ****
+        }
+      }
+  
+      // shutdown datastreamer and responseprocessor threads.
+      private void closeThreads() throws IOException {
+        try {
+--- 3177,3195 ----
+        }
+      }
+  
++     /**
++      * Aborts this output stream and releases any system 
++      * resources associated with this stream.
++      */
++     synchronized void abort() throws IOException {
++       if (closed) {
++         return;
++       }
++       streamer.setLastException(new IOException("Lease timeout of " +
++                                (hdfsTimeout/1000) + " seconds expired."));
++       closeThreads();
++     }
++  
+      // shutdown datastreamer and responseprocessor threads.
+      private void closeThreads() throws IOException {
+        try {
+***************
+*** 3203,3208 ****
+        while (!fileComplete) {
+          fileComplete = namenode.complete(src, clientName);
+          if (!fileComplete) {
+            try {
+              Thread.sleep(400);
+              if (System.currentTimeMillis() - localstart > 5000) {
+--- 3253,3268 ----
+        while (!fileComplete) {
+          fileComplete = namenode.complete(src, clientName);
+          if (!fileComplete) {
++           if (!clientRunning ||
++                 (hdfsTimeout > 0 &&
++                  localstart + hdfsTimeout < System.currentTimeMillis())) {
++               String msg = "Unable to close file because dfsclient " +
++                             " was unable to contact the HDFS servers." +
++                             " clientRunning " + clientRunning +
++                             " hdfsTimeout " + hdfsTimeout;
++               LOG.info(msg);
++               throw new IOException(msg);
++           }
+            try {
+              Thread.sleep(400);
+              if (System.currentTimeMillis() - localstart > 5000) {
